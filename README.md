@@ -20,6 +20,7 @@ callbacks instead of boxed `'static` ones.
 | `input`     | Key events as exhaustively matchable enums                 |
 | `timer`     | Periodic Furi timers                                       |
 | `backlight` | Keeping the display backlight on while a guard is alive    |
+| `battery`   | Battery charge level and charging state                    |
 
 ## Example
 
