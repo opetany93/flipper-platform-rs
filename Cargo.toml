@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/opetany93/flipper-platform-rs"
 keywords = ["embedded", "flipperzero", "flipper", "hal", "platform"]
 categories = ["embedded", "no-std", "hardware-support"]
-include = ["src/**", "README.md", "LICENSE-*"]
+include = ["src/**", "fonts/*.bin", "fonts/LICENSE.md", "README.md", "LICENSE-*"]
 
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabihf"

@@ -3,23 +3,17 @@ use core::marker::PhantomData;
 
 use flipperzero_sys as sys;
 
+static TOM_THUMB_4X6: &[u8] = include_bytes!("../fonts/tom_thumb_4x6_tr.bin");
+static FIXED_5X7: &[u8] = include_bytes!("../fonts/5x7_tr.bin");
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Font {
-    Bold,
-    Regular,
+    Smallest,
     Small,
+    Regular,
+    Bold,
+    Keyboard,
     BigNumbers,
-}
-
-impl Font {
-    const fn to_sys(self) -> sys::Font {
-        match self {
-            Self::Bold => sys::FontPrimary,
-            Self::Regular => sys::FontSecondary,
-            Self::Small => sys::FontKeyboard,
-            Self::BigNumbers => sys::FontBigNumbers,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,7 +71,18 @@ impl Canvas<'_> {
     }
 
     pub fn set_font(&mut self, font: Font) {
-        unsafe { sys::canvas_set_font(self.raw, font.to_sys()) };
+        unsafe {
+            match font {
+                Font::Smallest => {
+                    sys::canvas_set_custom_u8g2_font(self.raw, TOM_THUMB_4X6.as_ptr())
+                }
+                Font::Small => sys::canvas_set_custom_u8g2_font(self.raw, FIXED_5X7.as_ptr()),
+                Font::Regular => sys::canvas_set_font(self.raw, sys::FontSecondary),
+                Font::Bold => sys::canvas_set_font(self.raw, sys::FontPrimary),
+                Font::Keyboard => sys::canvas_set_font(self.raw, sys::FontKeyboard),
+                Font::BigNumbers => sys::canvas_set_font(self.raw, sys::FontBigNumbers),
+            }
+        };
     }
 
     /// `y` is the baseline, not the top edge.
@@ -103,6 +108,10 @@ impl Canvas<'_> {
                 text.as_ptr(),
             )
         };
+    }
+
+    pub fn string_width(&mut self, text: &CStr) -> u16 {
+        unsafe { sys::canvas_string_width(self.raw, text.as_ptr()) }
     }
 
     pub fn draw_xbm(&mut self, x: i32, y: i32, width: usize, height: usize, bitmap: &[u8]) {
