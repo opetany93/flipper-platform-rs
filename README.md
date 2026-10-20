@@ -19,18 +19,19 @@ callbacks instead of boxed `'static` ones.
 | `canvas`    | Text, lines and XBM bitmaps on the canvas a draw call gets |
 | `input`     | Key events as exhaustively matchable enums                 |
 | `timer`     | Periodic Furi timers                                       |
-| `backlight` | Keeping the display backlight on while a guard is alive    |
+| `backlight` | Holding the backlight on, with adjustable brightness       |
 | `battery`   | Battery charge level and charging state                    |
 
 ## Example
 
 ```rust,ignore
-use flipper_platform::backlight::BacklightLock;
+use flipper_platform::backlight::Backlight;
 use flipper_platform::canvas::{Canvas, Font};
 use flipper_platform::input::InputEvent;
 use flipper_platform::view_port::ViewPort;
 
-let _backlight = BacklightLock::acquire();
+let mut backlight = Backlight::default();
+backlight.hold();
 
 let on_draw = |canvas: &mut Canvas<'_>| {
     canvas.clear();
@@ -46,7 +47,7 @@ ViewPort::scoped(&on_draw, &on_input, |view_port| {
 ```
 
 The view port is removed from the GUI when `scoped` returns, and dropping
-`_backlight` hands the backlight back to the firmware.
+`backlight` hands the backlight back to the firmware.
 
 ## Status
 

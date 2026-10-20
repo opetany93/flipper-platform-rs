@@ -5,33 +5,29 @@ use flipperzero::notification_sequence;
 use flipperzero_sys as sys;
 
 const BACKLIGHT_BRIGHTNESS_DEFAULT: u8 = 50;
-const BACKLIGHT_BRIGHTNESS_STEP: u8 = 10;
-const BACKLIGHT_BRIGHTNESS_MIN: u8 = BACKLIGHT_BRIGHTNESS_STEP;
+const BACKLIGHT_BRIGHTNESS_STEP: i8 = 10;
+const BACKLIGHT_BRIGHTNESS_MIN: u8 = BACKLIGHT_BRIGHTNESS_STEP.unsigned_abs();
 const BACKLIGHT_BRIGHTNESS_MAX: u8 = 100;
 
-/// Keeps the backlight on while alive; hold it in an `Option` to switch it at runtime.
-///
-/// The firmware counts backlight locks, so keep at most one alive at a time.
-pub struct BacklightLock {
+struct BacklightLock {
     /// `None` keeps the user's brightness from the firmware settings.
-    level: Option<u8>,
+    percent: Option<u8>,
 }
 
 impl BacklightLock {
     #[must_use]
-    pub fn acquire() -> Self {
+    fn acquire() -> Self {
         const BACKLIGHT_ON: NotificationSequence =
             notification_sequence![NotificationMessage::display_backlight_enforce_on()];
         NotificationApp::open().notify_blocking(&BACKLIGHT_ON);
 
-        Self { level: None }
+        Self { percent: None }
     }
 
     #[must_use]
-    pub fn with_brightness(percent: u8) -> Self {
-        let level = percent.clamp(BACKLIGHT_BRIGHTNESS_MIN, BACKLIGHT_BRIGHTNESS_MAX);
-
-        let brightness = brightness_setting(level);
+    fn with_brightness(percent: u8) -> Self {
+        debug_assert!((BACKLIGHT_BRIGHTNESS_MIN..=BACKLIGHT_BRIGHTNESS_MAX).contains(&percent));
+        let brightness = brightness_setting(percent);
         let enforce = NotificationMessage::display_backlight_enforce_on();
         notify_borrowed(&[
             ptr::from_ref(&brightness),
@@ -39,46 +35,48 @@ impl BacklightLock {
             ptr::null(),
         ]);
 
-        Self { level: Some(level) }
+        Self {
+            percent: Some(percent),
+        }
     }
 
-    pub fn increase(&mut self) {
-        self.apply(
-            self.current_level()
-                .saturating_add(BACKLIGHT_BRIGHTNESS_STEP)
-                .min(BACKLIGHT_BRIGHTNESS_MAX),
-        );
+    fn increase(&mut self) {
+        self.step_by(BACKLIGHT_BRIGHTNESS_STEP);
     }
 
-    pub fn decrease(&mut self) {
-        self.apply(
-            self.current_level()
-                .saturating_sub(BACKLIGHT_BRIGHTNESS_STEP)
-                .max(BACKLIGHT_BRIGHTNESS_MIN),
-        );
+    fn decrease(&mut self) {
+        self.step_by(-BACKLIGHT_BRIGHTNESS_STEP);
     }
 
-    /// Every key press makes the firmware show the user's brightness again, so call this after each input event.
-    pub fn refresh(&self) {
+    fn refresh(&self) {
         const REVEAL: NotificationSequence =
             notification_sequence![NotificationMessage::display_backlight(0)];
         NotificationApp::open().notify(&REVEAL);
     }
 
-    // The user's brightness cannot be read back, so stepping from it starts at the default.
-    fn current_level(&self) -> u8 {
-        self.level.unwrap_or(BACKLIGHT_BRIGHTNESS_DEFAULT)
+    fn percent(&self) -> Option<u8> {
+        self.percent
     }
 
-    fn apply(&mut self, level: u8) {
-        if Some(level) == self.level {
+    /// The user's brightness cannot be read back, so stepping from it starts at the default.
+    fn step_by(&mut self, delta: i8) {
+        let start = self.percent.unwrap_or(BACKLIGHT_BRIGHTNESS_DEFAULT);
+        self.apply(
+            start
+                .saturating_add_signed(delta)
+                .clamp(BACKLIGHT_BRIGHTNESS_MIN, BACKLIGHT_BRIGHTNESS_MAX),
+        );
+    }
+
+    fn apply(&mut self, percent: u8) {
+        if Some(percent) == self.percent {
             return;
         }
 
-        self.level = Some(level);
+        self.percent = Some(percent);
 
         // The firmware only takes the brightness of an enforced backlight when the lock is first taken.
-        let brightness = brightness_setting(level);
+        let brightness = brightness_setting(percent);
         let release = NotificationMessage::display_backlight_enforce_auto();
         let enforce = NotificationMessage::display_backlight_enforce_on();
         let reveal = NotificationMessage::display_backlight(0);
@@ -114,5 +112,64 @@ fn notify_borrowed(sequence: &[*const NotificationMessage]) {
     assert!(sequence.last().is_some_and(|message| message.is_null()));
     unsafe {
         sys::notification_message_block(NotificationApp::open().as_ptr(), sequence.as_ptr().cast());
+    }
+}
+
+/// The firmware counts backlight locks, so keep at most one alive at a time.
+#[derive(Default)]
+pub struct Backlight {
+    lock: Option<BacklightLock>,
+    percent: Option<u8>,
+}
+
+impl Backlight {
+    #[must_use]
+    pub fn with_brightness(percent: u8) -> Self {
+        Self {
+            lock: None,
+            percent: Some(percent.clamp(BACKLIGHT_BRIGHTNESS_MIN, BACKLIGHT_BRIGHTNESS_MAX)),
+        }
+    }
+
+    pub fn percent(&self) -> Option<u8> {
+        self.lock
+            .as_ref()
+            .map_or(self.percent, BacklightLock::percent)
+    }
+
+    pub fn hold(&mut self) {
+        self.lock.get_or_insert_with(|| {
+            self.percent
+                .map_or_else(BacklightLock::acquire, BacklightLock::with_brightness)
+        });
+    }
+
+    pub fn release(&mut self) {
+        if let Some(lock) = &self.lock {
+            self.percent = lock.percent();
+        }
+
+        self.lock = None;
+    }
+
+    /// No-op while released
+    pub fn increase(&mut self) {
+        if let Some(lock) = &mut self.lock {
+            lock.increase();
+        }
+    }
+
+    /// No-op while released
+    pub fn decrease(&mut self) {
+        if let Some(lock) = &mut self.lock {
+            lock.decrease();
+        }
+    }
+
+    /// Every key press makes the firmware show the user's brightness again, so call this after each input event.
+    pub fn refresh(&self) {
+        if let Some(lock) = &self.lock {
+            lock.refresh();
+        }
     }
 }
